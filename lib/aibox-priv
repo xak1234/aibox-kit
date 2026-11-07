@@ -9,11 +9,14 @@ dashboard cannot turn into arbitrary root commands.
   aibox-priv crontab                       root's crontab
   aibox-priv dpkg-verify                   dpkg --verify
   aibox-priv smart DEVICE                  smartctl -H -A DEVICE
-  aibox-priv signal TERM|KILL PID          signal a process (never PID 1, sshd, systemd)
-  aibox-priv renice N PID
-  aibox-priv unit start|stop|restart|enable|disable UNIT
-  aibox-priv journal UNIT [LINES]
+  aibox-priv signal TERM|KILL PID          signal an aibox-owned or normal user's process (never root/system)
+  aibox-priv renice N PID                  same rule
+  aibox-priv unit start|stop|restart|enable|disable aibox-UNIT   aibox's own units only
+  aibox-priv journal UNIT [LINES]          read a unit's log
+  aibox-priv journal-errors                error-level log lines of the last 24 h
   aibox-priv cleanup                       vacuum the journal to 500 MB, drop old rotated logs, apt-get clean
+  aibox-priv sandbox-check | sandbox-run NAME TIMEOUT ROOT COMMAND | sandbox-kill NAME
+                                           coding-harness containers (fixed flags and image, harness folders only)
 """
 import glob
 import hashlib
@@ -25,7 +28,8 @@ import sys
 
 SYSFS = [r"^/sys/devices/system/cpu/cpu\d+/cpufreq/(scaling_governor|energy_performance_preference|scaling_max_freq)$",
          r"^/sys/class/drm/card\d+/device/power_dpm_force_performance_level$"]
-UNIT = re.compile(r"^[A-Za-z0-9@._:-]{1,120}\.(service|timer|socket)$")
+UNIT = re.compile(r"[A-Za-z0-9@._:-]{1,120}\.(service|timer|socket)")
+OWN_UNIT = re.compile(r"aibox-[A-Za-z0-9._-]{1,80}\.(service|timer|socket)")   # the only units it may start/stop
 PROTECT = {"systemd", "sshd", "init", "dbus-daemon", "dbus-broker", "systemd-journal", "systemd-logind"}
 
 
@@ -53,16 +57,85 @@ def h(s):
     return hashlib.sha256(s.encode()).hexdigest()[:16]
 
 
+def conf():
+    """Settings from /etc/aibox/aibox.env (root-owned); only read here, never from the caller's environment."""
+    out = {}
+    for line in read("/etc/aibox/aibox.env").splitlines():
+        k, sep, v = line.strip().partition("=")
+        if sep and re.fullmatch(r"[A-Z0-9_]+", k):
+            out[k] = v.strip().strip('"').strip("'")
+    return out
+
+
+def sandbox(rest):
+    """Coding-harness containers with fixed hardening flags, the configured image only, the caller's own uid,
+    and a bind mount limited to the harness/project folders."""
+    c = conf()
+    image = c.get("AIBOX_SANDBOX_IMAGE") or "aibox-sandbox:latest"
+    if not shutil_which("docker"):
+        die("docker is not installed")
+    if rest[:1] == ["sandbox-check"]:
+        os.execvp("docker", ["docker", "image", "inspect", image, "--format", "{{.Id}}"])
+    if rest[:1] == ["sandbox-kill"]:
+        if len(rest) != 2 or not re.fullmatch(r"mbh-[0-9a-f]{20}", rest[1]):
+            die("bad container name")
+        os.execvp("docker", ["docker", "rm", "-f", rest[1]])
+    if len(rest) != 5 or not re.fullmatch(r"mbh-[0-9a-f]{20}", rest[1]) or not re.fullmatch(r"\d{1,3}", rest[2]):
+        die("usage: sandbox-run NAME TIMEOUT ROOT COMMAND")
+    timeout, root, command = max(1, min(180, int(rest[2]))), rest[3], rest[4]
+    if not command.strip() or len(command) > 12000:
+        die("bad command")
+    real = os.path.realpath(root)
+    parents = [os.path.realpath(p) for p in (os.path.join(c.get("AIBOX_DATA", "/var/lib/aibox"), "modelbench"),
+                                              c.get("AIBOX_PROJECTS", "/var/lib/aibox/projects")) if p]
+    if real != root or not os.path.isdir(real) or not any(real.startswith(p + "/") for p in parents):
+        die("folder is outside the coding-harness folders")
+    uid, gid = os.environ.get("SUDO_UID", ""), os.environ.get("SUDO_GID", "")
+    if not uid.isdigit() or not gid.isdigit() or int(uid) == 0:
+        die("must be called through sudo by the service account")
+    os.execvp("docker", ["docker", "run", "--rm", "--pull=never", "--name", rest[1], "--label", "modelbench.harness=true",
+                         "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+                         "--user", "%s:%s" % (uid, gid), "--memory=1g", "--memory-swap=1g", "--cpus=2",
+                         "--pids-limit=128", "--ulimit", "fsize=33554432:33554432", "--init",
+                         "--tmpfs", "/tmp:rw,nosuid,size=128m,mode=1777", "--env", "HOME=/tmp",
+                         "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", "CI=1",
+                         "--mount", "type=bind,src=%s,dst=/workspace" % real, "--workdir", "/workspace",
+                         "--entrypoint", "/usr/bin/timeout", image, "--signal=TERM", "--kill-after=5s", str(timeout),
+                         "/bin/bash", "-o", "pipefail", "-c", command])
+
+
+def shutil_which(x):
+    import shutil
+    return shutil.which(x)
+
+
+def check_pid(s):
+    """Only ordinary processes: owned by the calling account (aibox) or a normal login user (uid >= 1000),
+    never root or a system daemon, never PID 1 or the protected names."""
+    pid = int(s)
+    try:
+        st = os.stat("/proc/%d" % pid)
+    except OSError:
+        die("no such process")
+    caller = int(os.environ.get("SUDO_UID", "-1"))
+    comm = read("/proc/%d/comm" % pid).strip()
+    if pid <= 1 or not comm or comm in PROTECT or comm.startswith("systemd"):
+        die("process is protected")
+    if st.st_uid != caller and not (1000 <= st.st_uid < 60000):
+        die("process belongs to root or a system account")
+    return pid
+
+
 def main(a):
     if not a:
         die(__doc__.strip(), 1)
     cmd, rest = a[0], a[1:]
     if cmd == "sysfs":
-        if len(rest) < 2 or not re.match(r"^[A-Za-z0-9_]{1,40}$", rest[0]):
+        if len(rest) < 2 or not re.fullmatch(r"[A-Za-z0-9_]{1,40}", rest[0]):
             die("bad value")
         val, paths = rest[0], rest[1:]
         for p in paths:
-            if not any(re.match(rx, p) for rx in SYSFS) or ".." in p or not os.path.exists(p):
+            if not any(re.fullmatch(rx.strip("^$"), p) for rx in SYSFS) or ".." in p or not os.path.exists(p):
                 die("path not allowed: " + p)
         bad = 0
         for p in paths:
@@ -88,32 +161,34 @@ def main(a):
     if cmd == "dpkg-verify":
         return run(["dpkg", "--verify"])
     if cmd == "smart":
-        if len(rest) != 1 or not re.match(r"^/dev/(nvme\d+(n\d+)?|sd[a-z]{1,2}|vd[a-z])$", rest[0]):
+        if len(rest) != 1 or not re.fullmatch(r"/dev/(nvme\d+(n\d+)?|sd[a-z]{1,2}|vd[a-z])", rest[0]):
             die("bad device")
         return run(["smartctl", "-H", "-A", rest[0]], timeout=60)
     if cmd == "signal":
         if len(rest) != 2 or rest[0] not in ("TERM", "KILL") or not rest[1].isdigit():
             die("usage: signal TERM|KILL PID")
-        pid = int(rest[1])
-        comm = read("/proc/%d/comm" % pid).strip()
-        if pid <= 1 or not comm or comm in PROTECT or comm.startswith("systemd"):
-            die("process is protected")
+        pid = check_pid(rest[1])
         return run(["kill", "-" + rest[0], str(pid)], timeout=10)
     if cmd == "renice":
-        if len(rest) != 2 or not re.match(r"^-?\d{1,2}$", rest[0]) or not rest[1].isdigit() or int(rest[1]) <= 1:
+        if len(rest) != 2 or not re.fullmatch(r"-?\d{1,2}", rest[0]) or not rest[1].isdigit():
             die("usage: renice N PID")
+        pid = check_pid(rest[1])
         n = max(-20, min(19, int(rest[0])))
-        return run(["renice", "-n", str(n), "-p", rest[1]], timeout=10)
+        return run(["renice", "-n", str(n), "-p", str(pid)], timeout=10)
     if cmd == "unit":
-        if len(rest) != 2 or rest[0] not in ("start", "stop", "restart", "enable", "disable") or not UNIT.match(rest[1]):
-            die("usage: unit start|stop|restart|enable|disable UNIT")
+        if len(rest) != 2 or rest[0] not in ("start", "stop", "restart", "enable", "disable") or not OWN_UNIT.fullmatch(rest[1]):
+            die("usage: unit start|stop|restart|enable|disable aibox-UNIT (only aibox units)")
         op = [rest[0], "--now"] if rest[0] in ("enable", "disable") else [rest[0]]
         return run(["systemctl"] + op + ["--", rest[1]], timeout=120)
+    if cmd == "journal-errors":
+        return run(["journalctl", "-p", "err", "--since", "-24h", "-q", "--no-pager", "-o", "cat"], timeout=60)
     if cmd == "journal":
-        if not rest or not UNIT.match(rest[0]):
+        if not rest or not UNIT.fullmatch(rest[0]):
             die("bad unit")
         n = rest[1] if len(rest) > 1 and rest[1].isdigit() else "80"
         return run(["journalctl", "-u", rest[0], "-n", str(min(int(n), 2000)), "--no-pager", "-o", "short-iso"], timeout=30)
+    if cmd in ("sandbox-check", "sandbox-run", "sandbox-kill"):
+        return sandbox(a)
     if cmd == "cleanup":
         rc = run(["journalctl", "--vacuum-size=500M"], timeout=120)
         run(["find", "/var/log", "-type", "f", "(", "-name", "*.gz", "-o", "-name", "*.[0-9]", ")", "-mtime", "+7", "-delete"], timeout=120)

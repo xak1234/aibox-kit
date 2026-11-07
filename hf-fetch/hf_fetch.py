@@ -18,7 +18,7 @@ GEN = Path(AC.get("AIBOX_HOME")) / "llama-swap" / "gen_models.py"
 MAX_GB = AC.model_budget_gb()
 FLOOR = AC.num("AIBOX_MIN_FREE_DISK_GB", 10) * 1e9
 HF = "https://huggingface.co"
-REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 QUANT_RE = re.compile(r"(IQ\d(?:_[A-Z0-9]+)+|Q\d(?:_[A-Z0-9]+)+|BF16|F16|F32|MXFP4)", re.I)
 SHARD_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$")
 
@@ -509,10 +509,14 @@ class H(BaseHTTPRequestHandler):
     def handle_any(self, method):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
+        if method == "POST" and u.path == AC.LOGIN_PATH:
+            return AC.handle_login(self, "Model fetch")
         if not AC.allowed(self, q):
             if u.path == "/":
                 return self.reply(401, AC.login_page("Model fetch"), "text/html; charset=utf-8")
             return self.reply(401, {"error": "bad or missing key"})
+        if method == "POST" and not AC.same_origin(self):
+            return self.reply(403, {"error": "cross-origin request refused"})
         if u.path == "/" and "key" in q:
             self.send_response(302)
             self.send_header("Set-Cookie", AC.cookie_header())

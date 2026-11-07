@@ -605,7 +605,7 @@ def scan():
             add("Unit files in /etc/systemd/system", "warn" if nu else "ok", ("new: " + ", ".join(nu)) if nu else "unchanged")
         else:
             add("Baseline", "warn", "no baseline saved")
-        jl = sh(["journalctl", "-p", "err", "--since", "-24h", "-q", "--no-pager", "-o", "cat"], timeout=60)[1].splitlines()
+        jl = priv(["journal-errors"], timeout=90)[1].splitlines()
         top = {}
         for l in jl:
             k = re.sub(r"\d+", "#", l)[:90]
@@ -733,7 +733,8 @@ def check_ram():
         return
     me = os.getpid()
     lp = locklib.locked_pids() if locklib else {}
-    cand = sorted((r for r in proc_rows() if r[0] > 1 and r[0] != me and r[5] > 0 and not protected(r[1]) and r[0] not in lp), key=lambda r: -r[5])
+    cand = sorted((r for r in proc_rows() if r[0] > 1 and r[0] != me and r[5] > 0 and not protected(r[1]) and r[0] not in lp
+                   and (r[6] == os.getuid() or 1000 <= r[6] < 60000)), key=lambda r: -r[5])
     if not cand:
         return
     pid, name, rss = cand[0][0], cand[0][1], cand[0][5]
@@ -773,7 +774,9 @@ def check_power_drift():
     changed = []
     for k in ("governor", "epp", "max_freq", "gpu_level"):
         cur = power_now()
-        if want.get(k) is None or cur.get(k) == want[k]:
+        if want.get(k) is None or cur.get(k) is None or cur.get(k) == want[k]:
+            continue   # nothing wanted, or this box has no such knob (e.g. GPU sysfs gone after a driver change)
+        if k == "gpu_level" and want[k] not in power_opts()["gpu_levels"]:
             continue
         if k == "epp" and cur["governor"] == "performance":
             continue
@@ -1246,6 +1249,11 @@ def act(d):
         pid = int(d["pid"])
         if pid <= 1 or pid == os.getpid():
             return {"ok": False, "msg": "That process is protected"}
+        try:
+            if os.stat(f"/proc/{pid}").st_uid < 1000 and os.stat(f"/proc/{pid}").st_uid != os.getuid():
+                return {"ok": False, "msg": "Root and system processes can't be changed from here"}
+        except OSError:
+            return {"ok": False, "msg": "No such process"}
         name = rd(f"/proc/{pid}/comm") or "?"
         if t == "kill":
             rc, _, e = priv(["signal", "TERM", pid])
@@ -1259,6 +1267,8 @@ def act(d):
         u, op = d.get("unit"), d.get("op")
         if u not in unit_list() or op not in ("start", "stop", "restart"):
             return {"ok": False, "msg": "Not allowed"}
+        if not u.startswith("aibox-"):
+            return {"ok": False, "msg": "Only the aibox services can be started or stopped from here"}
         if u == SELF_UNIT:
             if op != "restart":
                 return {"ok": False, "msg": "boxagent can only be restarted from here"}
@@ -1280,6 +1290,8 @@ def act(d):
         u, op = d.get("unit"), d.get("op")
         if u not in tl or op not in ("run", "enable", "disable"):
             return {"ok": False, "msg": "Not allowed"}
+        if not u.startswith("aibox-"):
+            return {"ok": False, "msg": "Only the aibox timers can be changed from here"}
         cmd = ["unit", "start", tl[u]["activates"]] if op == "run" else ["unit", op, u]
         rc, _, e = priv(cmd, timeout=120)
         event("action", f"Timer {u}: {op}", e.strip()[:200])
@@ -1420,6 +1432,8 @@ class H(BaseHTTPRequestHandler):
         if not self.authed(q):
             return self.send(401, AC.login_page("boxagent"), "text/html")
         if u.path.startswith("/term"):
+            if not AC.same_origin(self):
+                return self.send(403, "cross-origin request refused", "text/plain")
             if not AC.enabled("shell"):
                 return self.send(404, "the browser shell is not installed (install.sh --web-shell)", "text/plain")
             return self.proxy_term()
@@ -1449,7 +1463,9 @@ class H(BaseHTTPRequestHandler):
             self.send(500, {"error": str(e)})
 
     def do_POST(self):
-        if not self.authed({}) or self.headers.get("X-Box") != "1":
+        if urlparse(self.path).path == AC.LOGIN_PATH:
+            return AC.handle_login(self, "boxagent")
+        if not self.authed({}) or self.headers.get("X-Box") != "1" or not AC.same_origin(self):
             return self.send(401, {"error": "unauthorised"})
         try:
             d = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0") or 0)) or b"{}")

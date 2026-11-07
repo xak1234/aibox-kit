@@ -177,6 +177,52 @@ def allowed(handler, query=None):
     return bool(tok) and bool(got) and secrets.compare_digest(got, tok)
 
 
+def same_origin(handler):
+    """Browser requests that change something must come from the app's own page: reject when the browser
+    says the request is cross-site/other-origin (other ports on this host count as other origins).
+    Clients that send neither header (curl, scripts) pass; they still need the token."""
+    site = handler.headers.get("Sec-Fetch-Site")
+    if site and site not in ("same-origin", "none"):
+        return False
+    origin = handler.headers.get("Origin")
+    if origin and origin != "null":
+        from urllib.parse import urlparse
+        if urlparse(origin).netloc.lower() != (handler.headers.get("Host") or "").lower():
+            return False
+    elif origin == "null":
+        return False
+    return True
+
+
+LOGIN_PATH = "/__aibox_login"
+
+
+def handle_login(handler, app):
+    """POST /__aibox_login (form field key): set the cookie and go to the app, so the token never sits in a URL."""
+    from urllib.parse import parse_qs
+    try:
+        n = min(int(handler.headers.get("Content-Length") or 0), 4096)
+    except ValueError:
+        n = 0
+    got = (parse_qs(handler.rfile.read(n).decode("utf-8", "replace")).get("key") or [""])[0].strip()
+    tok = token()
+    if tok and got and secrets.compare_digest(got, tok) and same_origin(handler):
+        handler.send_response(303)
+        handler.send_header("Set-Cookie", cookie_header())
+        handler.send_header("Location", "/")
+    else:
+        body = login_page(app, failed=True).encode()
+        handler.send_response(401)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+        return
+    handler.send_header("Content-Length", "0")
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+
+
 def cookie_header():
     """Set-Cookie value that lets the browser skip ?key= next time. Cookies are shared across ports of one host."""
     return "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000" % (COOKIE, token())
@@ -199,17 +245,17 @@ def enabled(service):
             "harness": flag("AIBOX_CODING_HARNESS")}.get(service, True)
 
 
-def login_page(app):
+def login_page(app, failed=False):
     """Small page shown instead of a bare 401: paste the token once, the cookie keeps you in."""
     return ("<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             "<title>%s - sign in</title><style>body{font-family:system-ui,sans-serif;background:#141414;color:#ddd;display:grid;"
             "place-items:center;min-height:90vh;margin:0 16px}form{background:#1e1e1e;border:1px solid #333;border-radius:10px;padding:22px;"
             "max-width:420px;width:100%%}input{width:100%%;box-sizing:border-box;padding:9px;margin:10px 0;border-radius:6px;border:1px solid #444;"
             "background:#111;color:#eee;font:inherit}button{padding:8px 16px;border-radius:6px;border:1px solid #555;background:#2a2a2a;color:#eee;"
-            "font:inherit;cursor:pointer}p{color:#999;font-size:13px}</style></head><body><form method=get action=''>"
-            "<b>%s</b><p>Enter the access token. On the box it is in <code>%s</code> (or run <code>sudo aibox token</code>).</p>"
+            "font:inherit;cursor:pointer}p{color:#999;font-size:13px}.e{color:#e66}</style></head><body><form method=post action='%s'>"
+            "<b>%s</b>%s<p>Enter the access token. On the box it is in <code>%s</code> (or run <code>sudo aibox token</code>).</p>"
             "<input name=key type=password autocomplete=current-password autofocus placeholder='access token'><button>Open</button></form>"
-            "</body></html>") % (app, app, get("AIBOX_TOKEN_FILE"))
+            "</body></html>") % (app, LOGIN_PATH, app, "<p class=e>That token is not right.</p>" if failed else "", get("AIBOX_TOKEN_FILE"))
 
 
 def ram_pool_gb(total_gb):

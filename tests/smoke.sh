@@ -23,5 +23,17 @@ sudo -u aibox /opt/aibox/venv/bin/python /opt/aibox/llama-swap/gen_models.py --q
 sudo -u aibox sudo -n /usr/local/lib/aibox/aibox-priv integrity >/dev/null && ok "aibox-priv works for the aibox account" || bad "aibox-priv denied"
 sudo -u aibox sudo -n /bin/true 2>/dev/null && bad "aibox can run arbitrary commands as root" || ok "aibox cannot sudo anything else"
 sudo -u aibox sudo -n /usr/local/lib/aibox/aibox-priv sysfs 1 /etc/passwd 2>/dev/null && bad "aibox-priv wrote outside sysfs" || ok "aibox-priv refuses a non-sysfs path"
+sudo -u aibox sudo -n /usr/local/lib/aibox/aibox-priv unit stop ssh.service 2>/dev/null && bad "aibox-priv stopped a non-aibox unit" || ok "aibox-priv refuses non-aibox units"
+sudo -u aibox sudo -n /usr/local/lib/aibox/aibox-priv signal TERM "$(pgrep -xo systemd-journal || pgrep -xo cron || echo 1)" 2>/dev/null && bad "aibox-priv signalled a system process" || ok "aibox-priv refuses system processes"
+sudo -u aibox sudo -n /usr/local/lib/aibox/aibox-priv unit restart $'aibox-hf-fetch.service\n' 2>/dev/null && bad "aibox-priv accepted a trailing newline" || ok "aibox-priv rejects a trailing newline"
+for p in "$AIBOX_BENCH_PORT" "$AIBOX_HF_PORT"; do
+  [ "$(code -X POST -b "aibox_key=$T" -H "Origin: http://evil.example:8765" -H "Content-Type: text/plain" -d '{}' "http://127.0.0.1:$p/api/delete")" = 403 ] \
+    && ok "port $p refuses a cross-origin POST" || bad "port $p accepts a cross-origin POST"
+done
+[ "$(code -X POST -b "aibox_key=$T" -H "X-Box: 1" -H "Sec-Fetch-Site: same-site" -d '{"type":"ack","key":"x"}' "http://127.0.0.1:$AIBOX_BOX_PORT/api/act")" = 401 ] \
+  && ok "boxagent refuses a same-site (other port) POST" || bad "boxagent accepts a same-site POST"
+c=$(curl -s -o /dev/null -D - -d "key=$T" "http://127.0.0.1:$AIBOX_BENCH_PORT/__aibox_login" | tr -d '\r' | awk 'tolower($1)=="set-cookie:"{print "set"}')
+[ "$c" = set ] && ok "sign-in form sets the cookie" || bad "sign-in form does not set the cookie"
+[ "$(code -d "key=wrong" "http://127.0.0.1:$AIBOX_BENCH_PORT/__aibox_login")" = 401 ] && ok "sign-in form refuses a wrong token" || bad "sign-in form accepts a wrong token"
 echo; [ "$F" = 0 ] && echo "all checks passed" || echo "$F check(s) failed"
 exit "$F"

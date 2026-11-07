@@ -4726,8 +4726,12 @@ class UI(BaseHTTPRequestHandler):
             return self._send(200, {"object": "list", "data": data})
         return self._send(404, {"error": "not found"})
     def do_POST(self):
+        if urlparse(self.path).path == AC.LOGIN_PATH:
+            return AC.handle_login(self, "modelbench")
         if not self._authed():
             return self._send(403, {"error": "forbidden"})
+        if not AC.same_origin(self):
+            return self._send(403, {"error": "cross-origin request refused"})
         u = urlparse(self.path); q = parse_qs(u.query)
         ws_set(self._ws_from_headers())
         try:

@@ -2,7 +2,7 @@
 
 The coding workspace in modelbench runs a durable master-and-agent workflow with isolated project copies, real validation commands, reviewable diffs, conflict detection, and rollback.
 
-Open **http://&lt;box&gt;:9050/play** (enabled with `install.sh --coding-harness`). Classic chat stays at **/play/chat**.
+Open **http://&lt;box&gt;:9050/play** (on by default; `install.sh --no-coding-harness` leaves it out). Classic chat stays at **/play/chat**.
 
 ## Start a coding task
 
@@ -73,9 +73,9 @@ Optional configuration: `/var/lib/aibox/modelbench/coding_harness.json`
 Only folders under `allowed_roots` can be opened as projects, and the aibox account must be able to read them.
 Access uses the normal aibox token. This is a single-owner LAN tool, not a multi-tenant hosted service.
 
-**Security note.** The harness starts containers, so the aibox account is put in the `docker` group, which is
-root-equivalent on the host. Anyone holding the aibox token can drive the harness. Keep the token private and the
-ports off the internet, or leave the harness off (the default).
+**Security note.** Containers start through the root helper (`aibox-priv sandbox-run`) with fixed flags, the
+configured image, aibox's own uid and a mount limited to the harness/project folders; the aibox account is not
+in the docker group. Anyone holding the aibox token can drive the harness, so keep the token private.
 
 ## Development checks
 

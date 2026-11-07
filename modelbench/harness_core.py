@@ -403,6 +403,11 @@ class Control:
                     pass
 
 
+# aibox-kit: when AIBOX_SANDBOX_PRIV is set, containers are started through that root helper (fixed flags,
+# fixed image, mount limited to the harness folders) so the service account needs no docker group.
+_PRIV = os.environ.get("AIBOX_SANDBOX_PRIV", "")
+
+
 class Sandbox:
     def __init__(self, image: str, emit: Callable[..., None] | None = None) -> None:
         self.image = image
@@ -410,7 +415,9 @@ class Sandbox:
 
     def available(self) -> Json:
         try:
-            result = subprocess.run(["docker", "image", "inspect", self.image, "--format", "{{.Id}}"],
+            cmd = (["sudo", "-n", _PRIV, "sandbox-check"] if _PRIV
+                   else ["docker", "image", "inspect", self.image, "--format", "{{.Id}}"])
+            result = subprocess.run(cmd,
                                     capture_output=True, text=True, timeout=10, check=False)
             return {"ready": result.returncode == 0, "image": result.stdout.strip(),
                     "error": result.stderr.strip()[:300]}
@@ -425,7 +432,7 @@ class Sandbox:
         if shutil.disk_usage(root).free < 1024 ** 3:
             raise HarnessError("Less than 1 GiB of free disk remains; command refused.")
         name = "mbh-" + uuid.uuid4().hex[:20]
-        argv = ["docker", "run", "--rm", "--pull=never", "--name", name, "--label", "modelbench.harness=true",
+        argv = ["sudo", "-n", _PRIV, "sandbox-run", name, str(timeout), str(root.resolve()), command] if _PRIV else ["docker", "run", "--rm", "--pull=never", "--name", name, "--label", "modelbench.harness=true",
                 "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
                 "--user", f"{os.getuid()}:{os.getgid()}", "--memory=1g", "--memory-swap=1g", "--cpus=2",
                 "--pids-limit=128", "--ulimit", "fsize=33554432:33554432", "--init",
@@ -449,7 +456,8 @@ class Sandbox:
                     control.cancelled.wait(0.15)
             finally:
                 if process.poll() is None:
-                    subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=15, check=False)
+                    subprocess.run(["sudo", "-n", _PRIV, "sandbox-kill", name] if _PRIV else ["docker", "rm", "-f", name],
+                                   capture_output=True, timeout=15, check=False)
                     try:
                         process.wait(timeout=5)
                     except subprocess.TimeoutExpired:

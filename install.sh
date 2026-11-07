@@ -3,7 +3,7 @@
 # terminal.. agent, browser shell and coding harness. Debian/Ubuntu with systemd. Run as root.
 #
 #   sudo ./install.sh                       # GPU auto-detect, models in /srv/aibox/models
-#   sudo ./install.sh --models /data/gguf --terminal --coding-harness
+#   sudo ./install.sh --models /data/gguf --terminal
 #   sudo ./install.sh --help
 #
 # Re-running upgrades the code and keeps your settings, token, models and state.
@@ -18,7 +18,7 @@ LIBX=/usr/local/lib/aibox
 SVC=aibox
 
 MODELS="" BIND="" TRUSTED="" LLAMA="auto" LLAMA_SERVER="" SWAP_BIN="" OPEN_FW="" YES=0
-WANT_TERMINAL=0 WANT_SHELL=0 WANT_HARNESS=0 SWAP_LAN=0
+WANT_TERMINAL=0 WANT_SHELL=0 WANT_HARNESS="" SWAP_LAN=0
 
 usage() {
   cat <<'EOF'
@@ -33,8 +33,9 @@ Usage: sudo ./install.sh [options]
   --llama-swap PATH       use your own llama-swap binary instead of downloading one
   --swap-on-lan           let the LAN reach the model API (llama-swap has no auth; default: this box only)
   --terminal              also install the terminal.. agent (Docker)
-  --coding-harness        enable modelbench's coding workspace (Docker sandbox). Adds the aibox account to the
-                          docker group, which is root-equivalent - read the README before using it.
+  --no-coding-harness     leave out modelbench's coding workspace (on by default; needs Docker, which the
+                          installer adds). Its containers start through the root helper - the aibox account
+                          is NOT put in the docker group.
   --web-shell             add a browser shell to boxagent (ttyd, asks for a normal Linux login)
   --open-firewall CIDR    if ufw is active, allow CIDR to the UI ports (e.g. 192.168.1.0/24)
   -y, --yes               do not ask before installing packages
@@ -53,6 +54,7 @@ while [ $# -gt 0 ]; do
     --swap-on-lan) SWAP_LAN=1; shift ;;
     --terminal) WANT_TERMINAL=1; shift ;;
     --coding-harness) WANT_HARNESS=1; shift ;;
+    --no-coding-harness) WANT_HARNESS=0; shift ;;
     --web-shell) WANT_SHELL=1; shift ;;
     --open-firewall) OPEN_FW="$2"; shift 2 ;;
     -y|--yes) YES=1; shift ;;
@@ -82,7 +84,7 @@ envget() { [ -f "$ENVF" ] && sed -n "s/^$1=//p" "$ENVF" | tail -1 | sed 's/^"\(.
 [ -n "$TRUSTED" ] || TRUSTED="$(envget AIBOX_TRUSTED)"
 [ "$(envget AIBOX_TERMINAL)" = 1 ] && WANT_TERMINAL=1
 [ "$(envget AIBOX_WEB_SHELL)" = 1 ] && WANT_SHELL=1
-[ "$(envget AIBOX_CODING_HARNESS)" = 1 ] && WANT_HARNESS=1
+[ -n "$WANT_HARNESS" ] || WANT_HARNESS="$(envget AIBOX_CODING_HARNESS)"; [ -n "$WANT_HARNESS" ] || WANT_HARNESS=1
 [ "$(envget AIBOX_SWAP_BIND)" = 0.0.0.0 ] && SWAP_LAN=1
 NEED_DOCKER=$(( WANT_TERMINAL || WANT_HARNESS ))
 
@@ -133,19 +135,26 @@ if ! id "$SVC" >/dev/null 2>&1; then
   say "creating system account $SVC"
   useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin --user-group "$SVC"
 fi
-for g in video render adm systemd-journal; do getent group "$g" >/dev/null && usermod -aG "$g" "$SVC"; done
-if [ "$WANT_HARNESS" = 1 ]; then usermod -aG docker "$SVC"; fi
+for g in video render; do getent group "$g" >/dev/null && usermod -aG "$g" "$SVC"; done
 
+# Folders the aibox account owns are only ever CREATED by root here, never chowned/chmodded again on a
+# re-run: aibox could have swapped one for a symlink, and root must not follow it.
+mkdir_svc() {   # MODE DIR
+  if [ -L "$2" ]; then die "$2 is a symlink - refusing to touch it"; fi
+  [ -d "$2" ] || install -d -m "$1" -o "$SVC" -g "$SVC" "$2"
+}
 install -d -m 0755 "$PREFIX" "$PREFIX/bin" "$LIBX"
-install -d -m 0750 -o "$SVC" -g "$SVC" "$DATA" "$DATA/llama-swap" "$DATA/projects"
 install -d -m 0750 -o root -g "$SVC" "$ETC"
+mkdir_svc 0750 "$DATA"
+mkdir_svc 0750 "$DATA/llama-swap"
+mkdir_svc 0750 "$DATA/projects"
 IFS=: read -ra MROOTS <<< "$MODELS"
 for d in "${MROOTS[@]}"; do
-  if [ ! -d "$d" ]; then install -d -m 0775 -o "$SVC" -g "$SVC" "$d"; fi
-  [ -r "$d" ] || warn "the aibox account cannot read $d"
+  mkdir_svc 0775 "$d"
+  sudo -u "$SVC" test -r "$d" || warn "the aibox account cannot read $d"
 done
 INBOX="${MROOTS[0]}/inbox"
-install -d -m 0775 -o "$SVC" -g "$SVC" "$INBOX"
+mkdir_svc 0775 "$INBOX"
 
 # ---------------------------------------------------------------- code
 say "installing code to $PREFIX"
@@ -267,11 +276,11 @@ chown root:"$SVC" "$ENVF"; chmod 0640 "$ENVF"
 set -a; . "$ENVF"; set +a
 
 CFG="$DATA/llama-swap/config.yaml"
-if [ ! -f "$CFG" ]; then
-  sed -e "s#@LLAMA_SERVER@#$LLAMA_SERVER#" "$KIT/config/llama-swap.base.yaml" > "$CFG"
-  chown "$SVC:$SVC" "$CFG"
+# the config lives in a folder aibox owns, so aibox (not root) writes it
+if ! sudo -u "$SVC" test -e "$CFG"; then
+  sed -e "s#@LLAMA_SERVER@#$LLAMA_SERVER#" "$KIT/config/llama-swap.base.yaml" | sudo -u "$SVC" tee "$CFG" >/dev/null
 else   # point the llama macro at the current llama-server
-  sed -i "s#^  llama: .*#  llama: \"$LLAMA_SERVER\"#" "$CFG"
+  sudo -u "$SVC" sed -i "s#^  llama: .*#  llama: \"$LLAMA_SERVER\"#" "$CFG"
 fi
 sudo -u "$SVC" "$PREFIX/venv/bin/python" "$PREFIX/llama-swap/gen_models.py" --apply --quiet || warn "model scan failed (see above)"
 

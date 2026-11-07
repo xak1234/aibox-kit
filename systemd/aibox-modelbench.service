@@ -9,11 +9,12 @@ Group=aibox
 EnvironmentFile=/etc/aibox/aibox.env
 WorkingDirectory=/opt/aibox/modelbench
 ExecStart=/opt/aibox/venv/bin/python /opt/aibox/modelbench/bench.py serve
+# coding-harness containers start through the root helper (no docker group for this account)
+Environment=AIBOX_SANDBOX_PRIV=/usr/local/lib/aibox/aibox-priv
 # keep llama-servers it started alive across restarts; modelbench adopts them again
 KillMode=process
 Restart=always
 RestartSec=5
-NoNewPrivileges=yes
 PrivateTmp=yes
 
 [Install]

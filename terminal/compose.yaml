@@ -30,6 +30,8 @@ services:
     restart: unless-stopped
 networks:
   aiboxterm:
+    # IPv4 only on purpose: aibox-terminal-net locks the network with iptables (no ip6tables rules), so do not
+    # turn on enable_ipv6 here.
     driver: bridge
     driver_opts:
       com.docker.network.bridge.name: br-aiboxterm
