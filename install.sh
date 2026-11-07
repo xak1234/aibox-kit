@@ -82,6 +82,11 @@ envget() { [ -f "$ENVF" ] && sed -n "s/^$1=//p" "$ENVF" | tail -1 | sed 's/^"\(.
 [ -n "$MODELS" ] || MODELS="$(envget AIBOX_MODELS)"; [ -n "$MODELS" ] || MODELS=/srv/aibox/models
 [ -n "$BIND" ] || BIND="$(envget AIBOX_BIND)"; [ -n "$BIND" ] || BIND=0.0.0.0
 [ -n "$TRUSTED" ] || TRUSTED="$(envget AIBOX_TRUSTED)"
+# a llama-server you supplied earlier (outside /opt/aibox) is kept unless you pass a new one
+if [ -z "$LLAMA_SERVER" ]; then
+  _prev="$(envget AIBOX_LLAMA_SERVER)"
+  case "$_prev" in ""|"$PREFIX"/llama.cpp/*) ;; *) [ -x "$_prev" ] && LLAMA_SERVER="$_prev" ;; esac
+fi
 [ "$(envget AIBOX_TERMINAL)" = 1 ] && WANT_TERMINAL=1
 [ "$(envget AIBOX_WEB_SHELL)" = 1 ] && WANT_SHELL=1
 [ -n "$WANT_HARNESS" ] || WANT_HARNESS="$(envget AIBOX_CODING_HARNESS)"; [ -n "$WANT_HARNESS" ] || WANT_HARNESS=1

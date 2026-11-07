@@ -32,7 +32,7 @@ DEFAULTS = {
     "AIBOX_URL_BENCH": "", "AIBOX_URL_BOX": "", "AIBOX_URL_HF": "", "AIBOX_URL_TERMINAL": "",
     "AIBOX_TERMINAL": "0",                      # terminal.. agent installed (1/0)
     "AIBOX_WEB_SHELL": "0",                     # boxagent's browser shell (ttyd + login) installed (1/0)
-    "AIBOX_CODING_HARNESS": "0",                # modelbench coding harness (Docker sandbox) enabled (1/0)
+    "AIBOX_CODING_HARNESS": "1",                # modelbench coding harness (Docker sandbox) enabled (1/0)
     "AIBOX_SANDBOX_IMAGE": "aibox-sandbox:latest",
     "AIBOX_PROJECTS": "/var/lib/aibox/projects",
     "AIBOX_CTX": "32768",                       # default context for auto-added models

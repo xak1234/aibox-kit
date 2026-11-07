@@ -3537,7 +3537,7 @@ def _env_secret(var):
 def remote_key(name):
     rc = CFG["remote_coordinators"].get(name) or {}
     if rc.get("env"):
-        return _env_secret(rc["env"])
+        return _env_secret(rc["env"]) or _secret(rc["env"])   # environment, else the same name in secrets.json
     return _secret(rc.get("key_name") or (name + "_api_key"))
 
 def remote_list():
@@ -3596,7 +3596,7 @@ def remote_complete(name, messages, max_tokens=1024, temperature=0.3):
     key = remote_key(name)
     if not key:
         if rc.get("env"):
-            raise RuntimeError("no API key for %s - set the %s environment variable" % (name, rc["env"]))
+            raise RuntimeError("no API key for %s - add \"%s\" to %s (or set it in the environment)" % (name, rc["env"], CFG["secrets_file"]))
         raise RuntimeError("no API key for %s yet - add %s to %s" % (name, rc.get("key_name", name + "_api_key"), CFG["secrets_file"]))
     if rc.get("kind") == "anthropic":
         return _anthropic_complete(name, rc, key, messages, max_tokens, temperature)

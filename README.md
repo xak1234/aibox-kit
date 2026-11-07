@@ -91,7 +91,7 @@ sudo aibox scan              rescan the model folders now
 sudo aibox restart           restart every aibox service
 ```
 
-Settings live in `/etc/aibox/aibox.env` (every key and its default is listed in `lib/aibox_conf.py`). After an
+Settings live in `/etc/aibox/aibox.env`; every key is described in [docs/CONFIG.md](docs/CONFIG.md). After an
 edit, run `sudo aibox restart`.
 
 ## Security
@@ -123,6 +123,15 @@ access.
   runs as aibox's own uid and only mounts folders under the harness/project directories.
 - **The browser shell** (`--web-shell`) is ttyd on loopback behind boxagent's token, and it still asks for a
   normal Linux login.
+
+## Documentation
+
+- [docs/CONFIG.md](docs/CONFIG.md): every setting, model folders, remote coordinators, tuning llama-swap entries
+- [docs/API.md](docs/API.md): using the box's models from other apps (OpenAI-compatible), and the HTTP APIs
+- [docs/OPERATIONS.md](docs/OPERATIONS.md): files and services, upgrades, backups, HTTPS and reverse proxies, troubleshooting
+- [modelbench/HARNESS.md](modelbench/HARNESS.md): the coding workspace
+- [terminal/app/README.md](terminal/app/README.md) and [docs/INTEGRATION.md](terminal/app/docs/INTEGRATION.md): terminal..
+- [SECURITY.md](SECURITY.md): reporting a vulnerability
 
 ## What's in the box
 
