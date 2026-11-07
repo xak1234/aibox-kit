@@ -1,0 +1,42 @@
+# terminal.. agent for aibox. Started by aibox-terminal.service; values come from /etc/aibox/aibox.env
+# and /etc/aibox/terminal.env (both written by install.sh).
+name: aibox-terminal
+services:
+  terminal:
+    image: aibox-terminal:latest
+    build:
+      context: ./app
+    init: true
+    ports:
+      - "127.0.0.1:${AIBOX_TERMINAL_LOCAL_PORT:-18765}:8765"     # UI/API; reached on the LAN through aibox-terminal-ui.socket
+      - "127.0.0.1:${AIBOX_TERMINAL_WEB_PORT:-18081}:8081"       # web apps the agent starts in its sandbox
+    volumes:
+      - terminal-memory:/data
+      - terminal-workspace:/workspace
+    environment:
+      TERMINAL_ORIGINS: "${TERMINAL_ORIGINS:-}"
+      TERMINAL_MODEL_PROVIDER: "compatible"
+      TERMINAL_MODEL_URL: "http://${AIBOX_TERMINAL_GATEWAY:-172.31.250.1}:${AIBOX_SWAP_PORT:-9010}/v1"
+      TERMINAL_MODEL: "${AIBOX_TERMINAL_MODEL:-}"
+    networks: [aiboxterm]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, KILL, DAC_OVERRIDE]
+    shm_size: 512m
+    pids_limit: 512
+    mem_limit: 3g
+    cpus: 2.0
+    restart: unless-stopped
+networks:
+  aiboxterm:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-aiboxterm
+    ipam:
+      config:
+        - subnet: ${AIBOX_TERMINAL_SUBNET:-172.31.250.0/24}
+          gateway: ${AIBOX_TERMINAL_GATEWAY:-172.31.250.1}
+volumes:
+  terminal-memory:
+  terminal-workspace:

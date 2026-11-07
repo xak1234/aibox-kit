@@ -1,0 +1,10 @@
+[Unit]
+Description=aibox: add new GGUF files in the model folders to the llama-swap list
+
+[Service]
+Type=oneshot
+User=aibox
+Group=aibox
+EnvironmentFile=/etc/aibox/aibox.env
+ExecStart=/opt/aibox/venv/bin/python /opt/aibox/llama-swap/gen_models.py --apply --quiet
+NoNewPrivileges=yes

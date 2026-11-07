@@ -1,0 +1,19 @@
+[Unit]
+Description=aibox llama-swap model router (OpenAI-style API, loads models on demand)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=aibox
+Group=aibox
+EnvironmentFile=/etc/aibox/aibox.env
+WorkingDirectory=/var/lib/aibox/llama-swap
+ExecStart=/bin/sh -c 'exec "$AIBOX_LLAMA_SWAP" -config "$AIBOX_SWAP_CONFIG" -watch-config -listen "$AIBOX_SWAP_BIND:$AIBOX_SWAP_PORT"'
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

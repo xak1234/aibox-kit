@@ -1,0 +1,16 @@
+aibox-kit includes or downloads the following third-party software.
+
+Included in this repository
+- Harness² 0.1.0 (Google LLC), Apache License 2.0 - terminal/app/vendor/harness2-0.1.0-py3-none-any.whl,
+  unmodified; the licence text is inside the wheel (dist-info/licenses/LICENSE). Source:
+  https://github.com/google-research/harness2 (commit 1cfe254e8d25b15f37048c3730134686abe60335).
+- xterm.js (MIT) - bundled in terminal/app/dist/.
+
+Downloaded by install.sh (not redistributed here)
+- llama.cpp (MIT) - https://github.com/ggml-org/llama.cpp
+- llama-swap (MIT) - https://github.com/mostlygeek/llama-swap
+- ddgs (MIT) - https://pypi.org/project/ddgs/  (web search for models)
+
+Installed by the terminal.. and sandbox image builds
+- Python packages from terminal/app/requirements.txt, npm packages from terminal/app/package-lock.json,
+  Playwright Chromium, Debian packages - each under its own licence.

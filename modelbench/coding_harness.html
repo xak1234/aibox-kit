@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light"><title>Playground · Modelbench</title>
+  <link rel="stylesheet" href="/coding-assets/coding_harness.css">
+</head>
+<body>
+  <header class="appbar">
+    <a class="brand" href="/" id="benchLink"><span class="brand-mark">m<span>›</span></span><span>modelbench</span></a>
+    <span class="separator">/</span><span class="app-name">Playground <span class="version">3</span></span>
+    <nav class="mainnav" aria-label="Main navigation"><a href="/play" class="active">Coding</a><a id="classicLink" href="/play/chat">Classic chat</a></nav>
+    <div class="app-actions"><span class="connection" id="connection"><i></i>Connecting</span><button class="icon-button" id="theme" title="Switch light/dark theme" aria-label="Switch colour theme">◐</button></div>
+  </header>
+  <div class="workspacebar">
+    <button id="projectToggle" class="mobile-toggle" aria-label="Show projects">☰</button>
+    <div class="project-heading"><span class="project-icon">⌘</span><div><strong id="projectName">Your coding workspace</strong><span id="projectPath">Choose a project to get started</span></div></div>
+    <span class="host-chip" id="host">Linux workspace</span><button class="quiet" id="newWorkspace">＋ Project</button><button id="teamToggle" class="mobile-toggle" aria-label="Show team settings">Team</button>
+  </div>
+  <main class="layout">
+    <aside class="explorer" id="explorer" aria-label="Project explorer">
+      <div class="pane-heading"><span>EXPLORER</span><button class="icon-button" id="refreshFiles" aria-label="Refresh project files" title="Refresh files">↻</button></div>
+      <label class="sr-only" for="workspace">Project</label><select id="workspace"><option value="">Select a project</option></select>
+      <div class="file-toolbar"><input id="fileFilter" type="search" placeholder="Find a file…" aria-label="Find a file"><button class="icon-button" id="newFile" title="Create a file" aria-label="Create a file">＋</button></div>
+      <label class="staged-toggle"><input id="staged" type="checkbox"> View staged result</label>
+      <div id="files" class="file-list"><p class="muted padded">Project files appear here.</p></div>
+      <div class="pane-heading history-heading"><span>RUN HISTORY</span><span id="runCount" class="count">0</span></div>
+      <div id="runs" class="run-list"><p class="muted padded">Your runs are saved here.</p></div>
+    </aside>
+    <section class="workbench" aria-label="Coding workbench">
+      <div class="work-tabs" role="tablist" aria-label="Workspace views">
+        <button role="tab" aria-selected="true" data-view="overview">Overview</button><button role="tab" aria-selected="false" data-view="code">Code <span id="dirty" hidden>●</span></button><button role="tab" aria-selected="false" data-view="diff">Changes <span id="diffCount" class="count">0</span></button>
+        <div class="grow"></div><button class="quiet small" id="exportRun" disabled>Export run</button>
+      </div>
+      <div id="error" role="alert" hidden></div>
+      <section id="view-overview" class="view overview">
+        <div class="welcome" id="welcome"><div class="eyebrow">YOUR LOCAL CODING TEAM</div><h1>From task to<br><span>tested change.</span></h1><p>A master plans the work. Agents implement it in separate project copies. Check the results and apply the changes when they’re ready.</p><div class="welcome-steps"><span><b>01</b> Plan</span><span><b>02</b> Build</span><span><b>03</b> Verify</span><span><b>04</b> Review</span></div><div class="quick-prompts"><button data-prompt="Inspect this project, identify a concrete bug, fix it, and add a regression test.">Find &amp; fix a bug <span>↗</span></button><button data-prompt="Review this project's tests, add meaningful coverage for its main behaviours, and run the test suite.">Strengthen the tests <span>↗</span></button></div></div>
+        <div id="runDetail" hidden>
+          <div class="run-heading"><div><div class="eyebrow" id="runId">RUN</div><h1 id="runTitle"></h1></div><span id="runStatus" class="badge">Queued</span></div>
+          <details class="request-details"><summary>Original request</summary><p id="runRequest"></p></details>
+          <div class="active-team" id="activeTeam"></div>
+          <div class="pipeline" id="pipeline"></div>
+          <div class="run-summary" id="runSummary"></div>
+          <div class="section-title"><h2>Task board</h2><span id="taskProgress" class="muted"></span></div>
+          <div id="taskBoard" class="task-board"></div>
+          <div id="review" class="review-card" hidden></div>
+          <div class="run-buttons"><button id="cancelRun" class="danger" hidden>Stop run</button><button id="resumeRun" hidden>Resume from checkpoint</button><button id="applyRun" class="primary" hidden>Review &amp; apply changes</button><button id="rollbackRun" hidden>Roll back applied changes</button></div>
+          <div class="run-metrics" id="metrics"></div>
+        </div>
+      </section>
+      <section id="view-code" class="view code-view" hidden>
+        <div class="editor-toolbar"><span id="editorPath">Select a file</span><span id="editorMode" class="muted">Project</span><div class="grow"></div><button id="saveFile" class="small" disabled>Save <kbd>Ctrl S</kbd></button></div>
+        <div class="editor"><pre id="lineNumbers" aria-hidden="true">1</pre><textarea id="editor" aria-label="Source code editor" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" placeholder="Select a file in the explorer, or create a new file." disabled></textarea></div>
+        <div class="editor-status"><span id="fileStats">UTF-8</span><span>Tab to indent · Ctrl S to save</span></div>
+      </section>
+      <section id="view-diff" class="view diff-view" hidden>
+        <div class="diff-heading"><h2>Review changes</h2><button class="small" id="refreshDiff">Refresh diff</button></div>
+        <p class="muted">Changes stay in the run until you apply them. Existing edits are checked for conflicts.</p><div id="diffFiles" class="changed-files"></div><pre id="diff" class="diff-code">Select a run to inspect its changes.</pre>
+      </section>
+      <section class="console" aria-label="Run output">
+        <div class="console-tabs" role="tablist" aria-label="Output views"><button data-console="activity" role="tab" aria-selected="true">Activity <span id="eventCount" class="count">0</span></button><button data-console="checks" role="tab" aria-selected="false">Checks <span id="checksCount" class="count">0</span></button><button data-console="terminal" role="tab" aria-selected="false">Terminal</button><div class="grow"></div><button class="icon-button" id="consoleToggle" aria-label="Expand or collapse output panel">⌃</button></div>
+        <div id="console-activity" class="console-body activity"><div class="console-empty">Plans, tool calls and results are recorded as the team works.</div></div>
+        <div id="console-checks" class="console-body" hidden><div class="console-empty">Real exit codes and command output appear here.</div></div>
+        <div id="console-terminal" class="console-body" hidden><div class="terminal-note">Linux sandbox · disposable project copy · offline · commands do not change your source</div><pre id="terminalOutput">Ready.</pre><form id="terminalForm"><span>›</span><input id="terminalCommand" autocomplete="off" spellcheck="false" placeholder="python3 --version" aria-label="Sandbox command"><button id="terminalSend" class="small">Run</button></form></div>
+      </section>
+      <section class="composer" aria-label="New coding task"><div class="composer-header"><label for="task">What should the team build?</label><span><kbd>Ctrl</kbd> <kbd>Enter</kbd> to start</span></div><textarea id="task" placeholder="Describe the change, the expected behaviour, and anything the team must preserve…" rows="3"></textarea><div class="composer-footer"><span id="composerHint">Select a project and configure your team.</span><button id="startRun" class="primary">Start coding <span>↗</span></button></div></section>
+    </section>
+    <aside class="team-panel" id="teamPanel" aria-label="Team and validation settings">
+      <div class="pane-heading"><span>TEAM FOR NEXT RUN</span><span class="local-badge">LOCAL</span></div>
+      <div class="role-heading"><span class="role-icon master-icon">M</span><div><h2>Master</h2><p>Plan · coordinate · review</p></div></div><label class="sr-only" for="master">Master model</label><select id="master"><option value="">Loading models…</option></select>
+      <div class="role-heading agents-heading"><span class="role-icon">A</span><div><h2>Coding agents</h2><p>Implement · test · repair</p></div><span id="agentCount" class="count">0 / 3</span></div><div id="agents" class="agent-options"></div>
+      <label class="field-label" for="parallel">Concurrent tasks</label><select id="parallel"><option value="1">1 · steady resource use</option><option value="2">2 · separate file ownership</option></select><p class="field-note">Model requests are queued on the shared GPU. No models are loaded or swapped by a run.</p>
+      <div class="panel-divider"></div><h2 class="settings-title">Validation</h2><label class="field-label" for="checks">Required checks <span class="muted">optional</span></label><textarea id="checks" rows="4" spellcheck="false" placeholder="python3 -m unittest discover -v&#10;npm test"></textarea><p class="field-note">One Bash command per line. These run alongside the master’s checks. Failed checks prevent approval.</p>
+      <div class="execution-card"><div><span class="status-dot"></span><strong>Isolated execution</strong></div><dl><dt>Host</dt><dd id="executionHost">this box</dd><dt>Workspace</dt><dd>/workspace</dd><dt>Network</dt><dd>Off</dd><dt>Command limit</dt><dd>1 GiB · 2 CPUs · 180s</dd><dt>Recovery</dt><dd>Durable checkpoints</dd></dl><p id="sandboxStatus">Checking the local container…</p></div>
+      <p class="team-footnote">Embedding models are excluded. Only models with tool support can act as coding agents.</p>
+    </aside>
+  </main>
+  <footer class="statusbar"><span><i class="status-dot"></i>Modelbench Coding Harness</span><span id="footerState">Ready</span><div class="grow"></div><span id="footerFiles">0 files</span><span>UTF-8</span><span>v3.0</span></footer>
+  <dialog id="projectDialog"><form id="projectForm"><div class="dialog-title"><h2>Open a coding project</h2><button type="button" data-close class="icon-button" aria-label="Close">×</button></div><p class="muted">Create a new project or select an existing folder on the Linux host.</p><label for="projectInputName">Project name</label><input id="projectInputName" required placeholder="My project" maxlength="100"><label for="projectInputPath">Existing Linux folder <span class="muted">optional</span></label><input id="projectInputPath" placeholder="/var/lib/aibox/projects/my-project"><p class="field-note">Leave the folder blank to create a new project. Source files stay unchanged until you apply a reviewed run.</p><div class="dialog-actions"><button type="button" data-close>Cancel</button><button class="primary" id="createProject">Open project</button></div></form></dialog>
+  <dialog id="confirmDialog"><div class="dialog-title"><h2 id="confirmTitle">Confirm</h2></div><p id="confirmText"></p><div class="dialog-actions"><button id="confirmNo">Cancel</button><button id="confirmYes" class="primary">Continue</button></div></dialog>
+  <dialog id="fileDialog"><form id="fileForm"><div class="dialog-title"><h2>Create a file</h2><button type="button" data-close class="icon-button" aria-label="Close">×</button></div><label for="newFilePath">Relative path</label><input id="newFilePath" placeholder="src/main.py" required><div class="dialog-actions"><button type="button" data-close>Cancel</button><button class="primary">Create file</button></div></form></dialog>
+  <script src="/coding-assets/coding_harness.js" type="module"></script>
+</body></html>

@@ -1,0 +1,14 @@
+[Unit]
+Description=aibox terminal.. network lock (agent container: internet yes, LAN and host services no, models yes)
+After=network-pre.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/aibox/aibox.env
+ExecStart=/usr/local/lib/aibox/aibox-terminal-net apply
+ExecStop=/usr/local/lib/aibox/aibox-terminal-net remove
+
+[Install]
+WantedBy=multi-user.target

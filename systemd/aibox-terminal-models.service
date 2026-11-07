@@ -1,0 +1,10 @@
+[Unit]
+Description=aibox: model API proxy for the terminal.. container
+Requires=aibox-terminal-models.socket
+After=aibox-terminal-models.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd @TARGET@
+DynamicUser=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

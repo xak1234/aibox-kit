@@ -1,0 +1,20 @@
+[Unit]
+Description=aibox modelbench - see, test and talk to local GGUF models
+After=network-online.target aibox-llama-swap.service
+Wants=network-online.target
+
+[Service]
+User=aibox
+Group=aibox
+EnvironmentFile=/etc/aibox/aibox.env
+WorkingDirectory=/opt/aibox/modelbench
+ExecStart=/opt/aibox/venv/bin/python /opt/aibox/modelbench/bench.py serve
+# keep llama-servers it started alive across restarts; modelbench adopts them again
+KillMode=process
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

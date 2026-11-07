@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# aibox - small helper for an aibox-kit install
+set -euo pipefail
+ENVF=/etc/aibox/aibox.env
+[ -r "$ENVF" ] && { set -a; . "$ENVF"; set +a; }
+UNITS="aibox-llama-swap aibox-modelbench aibox-boxagent aibox-hf-fetch aibox-model-scan.timer"
+[ "${AIBOX_WEB_SHELL:-0}" = 1 ] && UNITS="$UNITS aibox-shell"
+[ "${AIBOX_TERMINAL:-0}" = 1 ] && UNITS="$UNITS aibox-terminal aibox-terminal-net aibox-terminal-ui.socket aibox-terminal-models.socket"
+need_root() { [ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }; }
+host() { local h; h="${AIBOX_PUBLIC_HOST:-$(hostname -I 2>/dev/null | awk '{print $1}')}"; echo "${h:-$(hostname)}"; }
+case "${1:-status}" in
+  status)
+    for u in $UNITS; do printf '%-32s %s\n' "$u" "$(systemctl is-active "$u" 2>/dev/null || true)"; done
+    echo; echo "modelbench  http://$(host):${AIBOX_BENCH_PORT:-9050}/"
+    echo "boxagent    http://$(host):${AIBOX_BOX_PORT:-9060}/"
+    echo "get models  http://$(host):${AIBOX_HF_PORT:-9070}/"
+    [ "${AIBOX_TERMINAL:-0}" = 1 ] && echo "terminal..  http://$(host):${AIBOX_TERMINAL_PORT:-8765}/"
+    curl -fsS "http://127.0.0.1:${AIBOX_SWAP_PORT:-9010}/v1/models" 2>/dev/null \
+      | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("\n%d models in llama-swap" % len(d)); [print("  ", m["id"]) for m in d[:40]]' \
+      || echo "llama-swap is not answering on :${AIBOX_SWAP_PORT:-9010}" ;;
+  token)
+    need_root
+    if [ "${2:-}" = --rotate ]; then
+      python3 -c 'import secrets; print(secrets.token_urlsafe(24))' > /etc/aibox/token
+      chown root:aibox /etc/aibox/token; chmod 0640 /etc/aibox/token
+      echo "new token (services pick it up straight away; open pages need it entered again):"
+    fi
+    cat /etc/aibox/token ;;
+  terminal-token)
+    need_root; docker exec aibox-terminal-terminal-1 cat /data/token; echo ;;
+  restart)
+    need_root; systemctl restart $UNITS && echo restarted ;;
+  logs)
+    need_root; journalctl -u "aibox-${2:-modelbench}" -n "${3:-100}" --no-pager ;;
+  scan)
+    need_root; sudo -u aibox /opt/aibox/venv/bin/python /opt/aibox/llama-swap/gen_models.py --apply ;;
+  sandbox-rebuild)
+    need_root; docker build -t aibox-sandbox:latest /opt/aibox/sandbox ;;
+  *)
+    echo "usage: aibox status | token [--rotate] | terminal-token | restart | logs [service] [lines] | scan | sandbox-rebuild" ;;
+esac

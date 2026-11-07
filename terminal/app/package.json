@@ -1,0 +1,14 @@
+{
+  "name": "terminal-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "runtime": "python3 scripts/dev.py",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint frontend --max-warnings 0"
+  },
+  "dependencies": { "@xterm/xterm": "5.5.0" },
+  "devDependencies": { "esbuild": "0.25.2", "typescript": "5.8.3", "eslint": "9.24.0", "typescript-eslint": "8.29.1" }
+}

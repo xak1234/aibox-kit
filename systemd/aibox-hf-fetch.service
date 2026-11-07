@@ -1,0 +1,18 @@
+[Unit]
+Description=aibox hf-fetch - Hugging Face model search and download
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=aibox
+Group=aibox
+EnvironmentFile=/etc/aibox/aibox.env
+WorkingDirectory=/var/lib/aibox
+ExecStart=/opt/aibox/venv/bin/python /opt/aibox/hf-fetch/hf_fetch.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

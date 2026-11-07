@@ -1,0 +1,27 @@
+name: terminal-workspace
+services:
+  terminal:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - terminal-memory:/data
+      - terminal-workspace:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TERMINAL_ORIGINS: "${TERMINAL_ORIGINS:-}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, KILL, DAC_OVERRIDE]
+    shm_size: 512m
+    pids_limit: 512
+    mem_limit: 3g
+    cpus: 2.0
+    restart: unless-stopped
+volumes:
+  terminal-memory:
+  terminal-workspace:

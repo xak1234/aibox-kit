@@ -1,0 +1,75 @@
+#!/usr/bin/python3
+"""Stand-in for llama-swap, for testing the kit. Reads the model list from the config and answers the
+endpoints the aibox services call; 'loading' a model starts the command from the config."""
+import json, os, re, shlex, subprocess, sys, threading, time, urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+a = sys.argv[1:]
+def opt(n, d=None):
+    for k in (n, "-" + n.lstrip("-"), "--" + n.lstrip("-")):
+        if k in a and a.index(k) + 1 < len(a):
+            return a[a.index(k) + 1]
+    return d
+CFG = opt("-config")
+if "-validate" in a or "--validate" in a:
+    t = open(CFG).read()
+    sys.exit(0 if "models:" in t else 1)
+if "--version" in a or "-version" in a:
+    print("version: stub"); sys.exit(0)
+host, _, port = (opt("-listen") or "127.0.0.1:9010").rpartition(":")
+
+def models():
+    t = open(CFG).read(); macros = dict(re.findall(r'^  (\w+): "(.*)"$', t.split("models:")[0], re.M))
+    out, cur = {}, None
+    for ln in t.split("models:", 1)[1].splitlines():
+        m = re.match(r'^  "?([^"\s:#][^":]*)"?:\s*$', ln)
+        if m: cur = m.group(1); continue
+        if cur and ln.strip().startswith("cmd:"):
+            c = ln.split("cmd:", 1)[1].strip().strip('"')
+            for k, v in macros.items(): c = c.replace("${%s}" % k, v)
+            out[cur] = c
+    return out
+RUN, NEXT = {}, [5800]
+def ensure(mid):
+    if mid in RUN and RUN[mid]["proc"].poll() is None: return RUN[mid]
+    for k in list(RUN): RUN.pop(k)["proc"].kill()
+    port = NEXT[0]; NEXT[0] += 1
+    cmd = models()[mid].replace("${PORT}", str(port))
+    p = subprocess.Popen(shlex.split(cmd)); RUN[mid] = {"proc": p, "port": port, "cmd": cmd, "state": "starting"}
+    for _ in range(120):
+        try:
+            urllib.request.urlopen("http://127.0.0.1:%d/health" % port, timeout=1); RUN[mid]["state"] = "ready"; break
+        except Exception: time.sleep(0.5)
+    return RUN[mid]
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *x): pass
+    def send(self, code, obj):
+        b = json.dumps(obj).encode(); self.send_response(code); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def do_GET(self):
+        p = self.path.split("?")[0]
+        if p == "/v1/models": return self.send(200, {"object": "list", "data": [{"id": k, "object": "model"} for k in models()]})
+        if p == "/running": return self.send(200, {"running": [{"model": k, "state": v["state"], "cmd": v["cmd"]} for k, v in RUN.items() if v["proc"].poll() is None]})
+        if p == "/unload":
+            for k in list(RUN): RUN.pop(k)["proc"].kill()
+            return self.send(200, {"ok": True})
+        m = re.match(r"^/upstream/([^/]+)/health$", p)
+        if m and m.group(1) in models(): ensure(m.group(1)); return self.send(200, {"status": "ok"})
+        self.send(404, {"error": "not found"})
+    def do_POST(self):
+        p = self.path.split("?")[0]; n = int(self.headers.get("Content-Length") or 0); raw = self.rfile.read(n)
+        m = re.match(r"^/api/models/unload/(.+)$", p)
+        if m:
+            r = RUN.pop(m.group(1), None)
+            if r: r["proc"].kill()
+            return self.send(200, {"ok": True})
+        if p == "/v1/chat/completions":
+            mid = (json.loads(raw or b"{}").get("model") or "")
+            if mid not in models(): return self.send(404, {"error": "no such model"})
+            r = ensure(mid)
+            req = urllib.request.Request("http://127.0.0.1:%d/v1/chat/completions" % r["port"], data=raw, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=60) as up:
+                b = up.read()
+            self.send_response(200); self.send_header("Content-Type", up.headers.get("Content-Type")); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b); return
+        self.send(404, {"error": "not found"})
+ThreadingHTTPServer((host, int(port)), H).serve_forever()

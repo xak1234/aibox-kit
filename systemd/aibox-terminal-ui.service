@@ -1,0 +1,10 @@
+[Unit]
+Description=aibox terminal.. UI proxy
+Requires=aibox-terminal-ui.socket
+After=aibox-terminal-ui.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd @TARGET@
+DynamicUser=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

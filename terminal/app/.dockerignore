@@ -1,0 +1,10 @@
+node_modules
+.venv
+.git
+.local-state
+.env
+__pycache__
+*.zip
+*.tar.gz
+workspace
+.openai

@@ -1,0 +1,128 @@
+#!/usr/bin/python3 -I
+"""aibox-priv - the only thing the aibox service account may run as root (see /etc/sudoers.d/aibox).
+
+Each sub-command does one fixed job with checked arguments, so a bug or a hostile request in a
+dashboard cannot turn into arbitrary root commands.
+
+  aibox-priv sysfs VALUE PATH...           write a CPU/GPU power setting
+  aibox-priv integrity                     hashes of sudoers / authorized_keys / ufw rules, setuid list (JSON)
+  aibox-priv crontab                       root's crontab
+  aibox-priv dpkg-verify                   dpkg --verify
+  aibox-priv smart DEVICE                  smartctl -H -A DEVICE
+  aibox-priv signal TERM|KILL PID          signal a process (never PID 1, sshd, systemd)
+  aibox-priv renice N PID
+  aibox-priv unit start|stop|restart|enable|disable UNIT
+  aibox-priv journal UNIT [LINES]
+  aibox-priv cleanup                       vacuum the journal to 500 MB, drop old rotated logs, apt-get clean
+"""
+import glob
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+
+SYSFS = [r"^/sys/devices/system/cpu/cpu\d+/cpufreq/(scaling_governor|energy_performance_preference|scaling_max_freq)$",
+         r"^/sys/class/drm/card\d+/device/power_dpm_force_performance_level$"]
+UNIT = re.compile(r"^[A-Za-z0-9@._:-]{1,120}\.(service|timer|socket)$")
+PROTECT = {"systemd", "sshd", "init", "dbus-daemon", "dbus-broker", "systemd-journal", "systemd-logind"}
+
+
+def die(msg, code=2):
+    sys.stderr.write("aibox-priv: %s\n" % msg)
+    sys.exit(code)
+
+
+def run(cmd, inp=None, timeout=900):
+    p = subprocess.run(cmd, input=inp, text=True, capture_output=True, timeout=timeout)
+    sys.stdout.write(p.stdout)
+    sys.stderr.write(p.stderr)
+    return p.returncode
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def h(s):
+    return hashlib.sha256(s.encode()).hexdigest()[:16]
+
+
+def main(a):
+    if not a:
+        die(__doc__.strip(), 1)
+    cmd, rest = a[0], a[1:]
+    if cmd == "sysfs":
+        if len(rest) < 2 or not re.match(r"^[A-Za-z0-9_]{1,40}$", rest[0]):
+            die("bad value")
+        val, paths = rest[0], rest[1:]
+        for p in paths:
+            if not any(re.match(rx, p) for rx in SYSFS) or ".." in p or not os.path.exists(p):
+                die("path not allowed: " + p)
+        bad = 0
+        for p in paths:
+            try:
+                with open(p, "w") as fh:
+                    fh.write(val)
+            except OSError as e:
+                sys.stderr.write("%s: %s\n" % (p, e))
+                bad = 1
+        return bad
+    if cmd == "integrity":
+        keys = "".join(read(p) for p in ["/root/.ssh/authorized_keys"] + sorted(glob.glob("/home/*/.ssh/authorized_keys")))
+        sudoers = "".join(read(p) for p in ["/etc/sudoers"] + sorted(glob.glob("/etc/sudoers.d/*")))
+        ufw = {p: read(p) for p in ("/etc/ufw/user.rules", "/etc/ufw/user6.rules") if os.path.exists(p)}
+        r = subprocess.run(["find", "/usr", "/bin", "/sbin", "/opt", "-xdev", "-perm", "-4000", "-type", "f"],
+                           capture_output=True, text=True, timeout=300)
+        print(json.dumps({"keys": h(keys), "sudoers": h(sudoers), "ufw": {k: h(v) for k, v in ufw.items()},
+                          "ufw_rules": sorted({l.strip() for v in ufw.values() for l in v.splitlines() if l.startswith("### tuple")}),
+                          "setuid": sorted(set(r.stdout.split()))}))
+        return 0
+    if cmd == "crontab":
+        return run(["crontab", "-l", "-u", "root"], timeout=30)
+    if cmd == "dpkg-verify":
+        return run(["dpkg", "--verify"])
+    if cmd == "smart":
+        if len(rest) != 1 or not re.match(r"^/dev/(nvme\d+(n\d+)?|sd[a-z]{1,2}|vd[a-z])$", rest[0]):
+            die("bad device")
+        return run(["smartctl", "-H", "-A", rest[0]], timeout=60)
+    if cmd == "signal":
+        if len(rest) != 2 or rest[0] not in ("TERM", "KILL") or not rest[1].isdigit():
+            die("usage: signal TERM|KILL PID")
+        pid = int(rest[1])
+        comm = read("/proc/%d/comm" % pid).strip()
+        if pid <= 1 or not comm or comm in PROTECT or comm.startswith("systemd"):
+            die("process is protected")
+        return run(["kill", "-" + rest[0], str(pid)], timeout=10)
+    if cmd == "renice":
+        if len(rest) != 2 or not re.match(r"^-?\d{1,2}$", rest[0]) or not rest[1].isdigit() or int(rest[1]) <= 1:
+            die("usage: renice N PID")
+        n = max(-20, min(19, int(rest[0])))
+        return run(["renice", "-n", str(n), "-p", rest[1]], timeout=10)
+    if cmd == "unit":
+        if len(rest) != 2 or rest[0] not in ("start", "stop", "restart", "enable", "disable") or not UNIT.match(rest[1]):
+            die("usage: unit start|stop|restart|enable|disable UNIT")
+        op = [rest[0], "--now"] if rest[0] in ("enable", "disable") else [rest[0]]
+        return run(["systemctl"] + op + ["--", rest[1]], timeout=120)
+    if cmd == "journal":
+        if not rest or not UNIT.match(rest[0]):
+            die("bad unit")
+        n = rest[1] if len(rest) > 1 and rest[1].isdigit() else "80"
+        return run(["journalctl", "-u", rest[0], "-n", str(min(int(n), 2000)), "--no-pager", "-o", "short-iso"], timeout=30)
+    if cmd == "cleanup":
+        rc = run(["journalctl", "--vacuum-size=500M"], timeout=120)
+        run(["find", "/var/log", "-type", "f", "(", "-name", "*.gz", "-o", "-name", "*.[0-9]", ")", "-mtime", "+7", "-delete"], timeout=120)
+        run(["apt-get", "clean"], timeout=120)
+        return rc
+    die("unknown command: " + cmd)
+
+
+if __name__ == "__main__":
+    if os.geteuid() != 0:
+        die("must run through sudo", 1)
+    sys.exit(main(sys.argv[1:]))

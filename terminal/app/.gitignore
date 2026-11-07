@@ -1,0 +1,12 @@
+node_modules/
+.venv/
+.local-state/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.zip
+*.tar.gz
+.env
+workspace/

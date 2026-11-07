@@ -1,0 +1,9 @@
+[Unit]
+Description=aibox: model API for the terminal.. container on @LISTEN@ (its bridge gateway only)
+
+[Socket]
+ListenStream=@LISTEN@
+FreeBind=true
+
+[Install]
+WantedBy=sockets.target

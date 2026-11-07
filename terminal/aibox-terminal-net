@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Network lock for the terminal.. agent container (bridge br-aiboxterm).
+#  * forwarded traffic (DOCKER-USER): internet yes; DNS to this host's upstream resolvers yes;
+#    LAN, private, link-local and multicast ranges no
+#  * traffic to this host (INPUT): only the model API proxy on the bridge gateway; everything else
+#    (modelbench, boxagent, hf-fetch, ssh, ...) is dropped
+#   aibox-terminal-net apply | remove
+set -euo pipefail
+[ -r /etc/aibox/aibox.env ] && set -a && . /etc/aibox/aibox.env && set +a
+BR=br-aiboxterm
+GW=${AIBOX_TERMINAL_GATEWAY:-172.31.250.1}
+PORT=${AIBOX_SWAP_PORT:-9010}
+CH=AIBOX-TERM-IN
+dns_servers() {   # the upstream resolvers Docker's embedded DNS forwards to (often the home router)
+  local f=/etc/resolv.conf
+  grep -qE '^nameserver[[:space:]]+127\.' "$f" 2>/dev/null && [ -r /run/systemd/resolve/resolv.conf ] && f=/run/systemd/resolve/resolv.conf
+  awk '/^nameserver[[:space:]]+[0-9.]+$/ && $2 !~ /^127\./ {print $2}' "$f" 2>/dev/null | sort -u
+}
+fwd_rules() {
+  echo "-i $BR -o $BR -j RETURN"
+  for d in $(dns_servers); do
+    echo "-i $BR -d $d -p udp --dport 53 -j RETURN"
+    echo "-i $BR -d $d -p tcp --dport 53 -j RETURN"
+  done
+  for net in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 \
+             192.168.0.0/16 198.18.0.0/15 224.0.0.0/4 240.0.0.0/4; do
+    echo "-i $BR -d $net -j DROP"
+  done
+}
+apply() {
+  iptables -N DOCKER-USER 2>/dev/null || true
+  mapfile -t R < <(fwd_rules)
+  for ((i=${#R[@]}-1; i>=0; i--)); do        # insert in reverse so the final order matches fwd_rules
+    read -ra a <<< "${R[i]}"
+    iptables -C DOCKER-USER "${a[@]}" 2>/dev/null || iptables -I DOCKER-USER 1 "${a[@]}"
+  done
+  iptables -N "$CH" 2>/dev/null || iptables -F "$CH"
+  iptables -A "$CH" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  iptables -A "$CH" -d "$GW" -p tcp --dport "$PORT" -j RETURN
+  iptables -A "$CH" -j DROP
+  iptables -C INPUT -i "$BR" -j "$CH" 2>/dev/null || iptables -I INPUT 1 -i "$BR" -j "$CH"
+}
+remove() {
+  while read -r line; do read -ra a <<< "$line"; while iptables -D DOCKER-USER "${a[@]}" 2>/dev/null; do :; done; done < <(fwd_rules)
+  while iptables -D INPUT -i "$BR" -j "$CH" 2>/dev/null; do :; done
+  iptables -F "$CH" 2>/dev/null || true
+  iptables -X "$CH" 2>/dev/null || true
+}
+case "${1:-apply}" in
+  apply) apply ;;
+  remove) remove ;;
+  *) echo "usage: $0 apply|remove" >&2; exit 2 ;;
+esac

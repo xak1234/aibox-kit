@@ -1,0 +1,7 @@
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+scripts/terminal-browser text eol=lf
+Dockerfile text eol=lf
+*.bat text eol=crlf
+*.whl binary

@@ -1,0 +1,12 @@
+[Unit]
+Description=aibox browser shell (ttyd on loopback, normal Linux login; reached through boxagent /term/ behind the token)
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/aibox/aibox.env
+ExecStart=/bin/sh -c 'exec /usr/bin/ttyd -i 127.0.0.1 -p "${AIBOX_SHELL_PORT:-9065}" -b /term -W -t titleFixed="$(hostname)" -t fontSize=15 -t disableLeaveAlert=true /bin/login'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

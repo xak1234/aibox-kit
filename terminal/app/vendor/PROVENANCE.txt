@@ -1,0 +1,13 @@
+Harness² 0.1.0
+Source: https://github.com/google-research/harness2
+Commit: 1cfe254e8d25b15f37048c3730134686abe60335
+License: Apache-2.0 (included in the wheel's dist-info/licenses directory)
+Wheel built without modifying upstream source, using pip wheel --no-deps.
+SHA-256: e779ce6d3706afda4a9b7be3aeb0a876122dd4af4bb3b2065db772bcaabba8fa
+
+terminal.. uses Harness²'s SurfaceSpec, validate/read_tree/write_tree, Library,
+and run_sequential recursion. Single runs retain evidence. Optional repeated mode
+uses a custom live-PTY BenchmarkAdapter and HTTP Proposer subclass. It does not
+invoke stock OpenCode or claim equivalence with Google's benchmark measurements.
+Verification/adoption and the UI/browser runtime are application-owned integration
+code; the upstream wheel remains unmodified.

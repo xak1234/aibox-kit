@@ -1,0 +1,17 @@
+[Unit]
+Description=aibox terminal.. agent (Docker container)
+Requires=docker.service aibox-terminal-net.service
+After=docker.service aibox-terminal-net.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/aibox/aibox.env
+EnvironmentFile=-/etc/aibox/terminal.env
+WorkingDirectory=/opt/aibox/terminal
+ExecStart=/usr/bin/docker compose -p aibox-terminal -f /opt/aibox/terminal/compose.yaml up -d --no-build
+ExecStop=/usr/bin/docker compose -p aibox-terminal -f /opt/aibox/terminal/compose.yaml stop
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

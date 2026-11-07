@@ -1,0 +1,9 @@
+[Unit]
+Description=aibox terminal.. UI on @LISTEN@ (proxied to the container on loopback, so the host firewall applies)
+
+[Socket]
+ListenStream=@LISTEN@
+FreeBind=true
+
+[Install]
+WantedBy=sockets.target
